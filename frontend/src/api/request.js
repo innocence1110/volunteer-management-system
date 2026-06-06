@@ -33,7 +33,11 @@ request.interceptors.response.use(
     return res
   },
   (error) => {
-    ElMessage.error(error.response?.data?.message || '网络请求失败')
+    const msg = error.response?.data?.message
+      || (typeof error.response?.data === 'string' ? error.response.data : null)
+      || error.message
+      || '网络请求失败'
+    ElMessage.error(msg)
     return Promise.reject(error)
   }
 )

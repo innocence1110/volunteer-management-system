@@ -22,7 +22,7 @@ public class ImageModerationService {
     private static final int    MIN_DIMENSION        = 64;       // 最小宽或高
     private static final double MIN_ASPECT_RATIO     = 0.1;      // 最扁比例
     private static final double MAX_ASPECT_RATIO     = 10.0;     // 最窄比例
-    private static final double SKIN_RATIO_THRESHOLD = 0.35;     // 肤色比例上限
+    private static final double SKIN_RATIO_THRESHOLD = 0.22;     // 肤色比例上限（降为0.22，捕捉泳装/暴露照片）
     private static final double BLUR_THRESHOLD       = 15.0;     // 拉普拉斯方差下限（低于此值视为模糊）
     private static final double BRIGHTNESS_LOW       = 0.08;     // 平均亮度下限（太暗）
     private static final double BRIGHTNESS_HIGH      = 0.95;     // 平均亮度上限（太亮）
@@ -338,8 +338,8 @@ public class ImageModerationService {
         int colStep = 3;
         // 滑动窗口大小：连续检查 30 对像素
         int windowSize = 30;
-        // 翻转灰度差阈值
-        int flipThreshold = 40;
+        // 翻转灰度差阈值（提高至 80 区分二维码黑↔白 vs 海浪白↔蓝）
+        int flipThreshold = 80;
 
         double maxRate = 0;
 
