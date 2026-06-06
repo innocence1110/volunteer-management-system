@@ -77,7 +77,7 @@ public class CheckInController {
             return Result.error("请选择要上传的图片");
         }
         String originalName = file.getOriginalFilename();
-        if (originalName != null && !originalName.matches(".*\\.(jpg|jpeg|png|gif)$")) {
+        if (originalName != null && !originalName.matches(".*\\.(?i)(jpg|jpeg|png|gif)$")) {
             return Result.error("仅支持 JPG/PNG/GIF 格式图片");
         }
         if (file.getSize() > 5 * 1024 * 1024) {

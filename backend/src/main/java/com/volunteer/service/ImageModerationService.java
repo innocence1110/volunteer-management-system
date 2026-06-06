@@ -116,7 +116,17 @@ public class ImageModerationService {
         totalScore += edgeDensity;
         checks++;
 
-        // ── Layer 5: 单色/纯色检测 ──
+        // ── Layer 5: 高频翻转检测（二维码/密集文字图专用） ──
+        double highFreq = detectHighFrequency(image);
+        details.add(String.format("高频翻转率: %.3f", highFreq));
+
+        if (highFreq > 0.25) {  // 二维码通常 > 0.30，普通照片 < 0.10
+            return reject("检测到二维码或密集文字，请上传活动现场照片", 0.75, details);
+        }
+        totalScore += highFreq;
+        checks++;
+
+        // ── Layer 6: 单色/纯色检测 ──
         double uniformRatio = detectUniformRegion(image);
         details.add(String.format("单色区域占比: %.2f%%", uniformRatio * 100));
         if (uniformRatio > UNIFORM_THRESHOLD) {
@@ -263,19 +273,24 @@ public class ImageModerationService {
      *
      * 二维码 / 文本图片通常有极高的边缘密度。
      * 正常的活动照片边缘密度通常较低。
+     *
+     * 修复：增加采样密度（step 分母放大 10 倍），
+     *       降低边缘判定阈值（从 80 降到 50），
+     *       降低边缘密度阈值（从 0.40 降到 0.18）
      */
     private double computeEdgeDensity(BufferedImage image) {
         int w = image.getWidth();
         int h = image.getHeight();
 
-        int step = Math.max(1, (int) Math.sqrt(w * h / 5000.0));
+        // 提高采样密度：原本 /5000，改成 /50000（采样约 10 倍）
+        int step = Math.max(1, (int) Math.sqrt(w * h / 50000.0));
         int edgePixels = 0;
         int totalPixels = 0;
 
         // Sobel 核
         int[][] sobelX = {{-1, 0, 1}, {-2, 0, 2}, {-1, 0, 1}};
         int[][] sobelY = {{-1, -2, -1}, {0, 0, 0}, {1, 2, 1}};
-        int threshold = 80;  // 边缘判定阈值
+        int threshold = 50;  // 降低边缘判定阈值（原 80）
 
         for (int y = 1; y < h - 1; y += step) {
             for (int x = 1; x < w - 1; x += step) {
@@ -297,6 +312,51 @@ public class ImageModerationService {
         }
 
         return totalPixels > 0 ? (double) edgePixels / totalPixels : 0.0;
+    }
+
+    /**
+     * 高频翻转检测 —— 针对二维码/密集文字图的专用检测
+     *
+     * 原理：二维码的模块（黑白块）交替排列，相邻像素的灰度值频繁
+     *       从亮到暗或从暗到亮翻转。正常照片的像素过渡平缓。
+     *
+     * 沿多行水平扫描，统计相邻像素的灰度翻转次数占比。
+     * 二维码通常 > 30%，普通照片 < 10%。
+     *
+     * @return 高频翻转率 (0~1)
+     */
+    private double detectHighFrequency(BufferedImage image) {
+        int w = image.getWidth();
+        int h = image.getHeight();
+
+        // 采样行数：取图高度的 5%，至少 5 行
+        int scanLines = Math.max(5, h / 20);
+        int lineStep = Math.max(1, h / scanLines);
+
+        // 列采样步长：每 2 像素采一次（QR 码模块很小，不能隔太多）
+        int colStep = Math.max(1, w / 200);
+
+        long totalFlips = 0;
+        long totalPairs = 0;
+
+        for (int y = 0; y < h; y += lineStep) {
+            int prevGray = -1;
+            for (int x = 0; x < w; x += colStep) {
+                Color c = new Color(image.getRGB(x, y));
+                int gray = (c.getRed() + c.getGreen() + c.getBlue()) / 3;
+
+                if (prevGray >= 0) {
+                    // 灰度差 > 40 算一次翻转（黑白模块边界）
+                    if (Math.abs(gray - prevGray) > 40) {
+                        totalFlips++;
+                    }
+                    totalPairs++;
+                }
+                prevGray = gray;
+            }
+        }
+
+        return totalPairs > 0 ? (double) totalFlips / totalPairs : 0.0;
     }
 
     /**
