@@ -129,7 +129,7 @@ public class ImageModerationService {
         double highFreq = detectHighFrequency(image);
         details.add(String.format("高频翻转率: %.3f", highFreq));
 
-        if (highFreq > 0.25) {  // 二维码通常 > 0.30，普通照片 < 0.10
+        if (highFreq > 0.32) {  // 二维码通常 > 0.35，密集文字 < 0.28，自然照片 < 0.10
             return reject("检测到二维码或密集文字，请上传活动现场照片", 0.75, details);
         }
         totalScore += highFreq;
