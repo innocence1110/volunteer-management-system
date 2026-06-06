@@ -80,8 +80,8 @@ public class CheckInController {
         if (originalName != null && !originalName.matches(".*\\.(?i)(jpg|jpeg|png|gif)$")) {
             return Result.error("仅支持 JPG/PNG/GIF 格式图片");
         }
-        if (file.getSize() > 5 * 1024 * 1024) {
-            return Result.error("图片大小不能超过5MB");
+        if (file.getSize() > 10 * 1024 * 1024) {
+            return Result.error("图片大小不能超过10MB");
         }
 
         // ── 图片内容审核 ──

@@ -24,7 +24,7 @@ public class ImageModerationService {
     private static final double MAX_ASPECT_RATIO     = 10.0;     // 最窄比例
     private static final double SKIN_RATIO_THRESHOLD = 0.22;     // 全局肤色比例上限
     private static final double SKIN_SPREAD_THRESHOLD = 0.10;    // 即使全局偏低，若皮肤在画面中大面积扩散也拦截
-    private static final double SKIN_CELL_THRESHOLD  = 0.25;     // 单格肤色密度达到此值视为"有皮肤"
+    private static final double SKIN_CELL_THRESHOLD  = 0.32;     // 单格肤色密度达到此值视为"有皮肤"
     private static final double BLUR_THRESHOLD       = 15.0;     // 拉普拉斯方差下限（低于此值视为模糊）
     private static final double BRIGHTNESS_LOW       = 0.08;     // 平均亮度下限（太暗）
     private static final double BRIGHTNESS_HIGH      = 0.95;     // 平均亮度上限（太亮）
@@ -129,7 +129,7 @@ public class ImageModerationService {
         double highFreq = detectHighFrequency(image);
         details.add(String.format("高频翻转率: %.3f", highFreq));
 
-        if (highFreq > 0.32) {  // 二维码通常 > 0.35，密集文字 < 0.28，自然照片 < 0.10
+        if (highFreq > 0.38) {  // 二维码通常 > 0.35，密集文字 < 0.28，自然照片 < 0.10
             return reject("检测到二维码或密集文字，请上传活动现场照片", 0.75, details);
         }
         totalScore += highFreq;
