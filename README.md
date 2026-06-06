@@ -650,7 +650,7 @@ mysql -u root -p123456 < database/schema.sql
 ### Q6：图片签到失败 / 被拒绝
 
 **检查顺序：**
-1. 确认图片格式为 JPG/PNG/GIF，大小不超过 5MB
+1. 确认图片格式为 JPG/PNG/GIF，大小不超过 10MB
 2. 确认后端目录下 `uploads/checkin/` 文件夹可写（首次上传会自动创建）
 3. **图片内容审核拒绝**：系统会自动检测模糊/过暗/过亮/纯色/二维码/违规暴露内容，请上传清晰的活动现场照片
 4. 可在 `application.yml` 的 `moderation` 配置段调整审核阈值

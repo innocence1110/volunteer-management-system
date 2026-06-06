@@ -68,7 +68,7 @@
         >
           <el-button type="primary">选择照片</el-button>
           <template #tip>
-            <div style="color: #909399; font-size: 12px;">支持 JPG/PNG 格式，不超过 5MB</div>
+            <div style="color: #909399; font-size: 12px;">支持 JPG/PNG 格式，不超过 10MB</div>
           </template>
         </el-upload>
         <div style="text-align: right; margin-top: 20px;">
@@ -197,8 +197,8 @@ async function handleImageCheckIn() {
     ElMessage.warning('请选择照片')
     return
   }
-  if (uploadFile.value.size > 5 * 1024 * 1024) {
-    ElMessage.warning('图片大小不能超过5MB')
+  if (uploadFile.value.size > 10 * 1024 * 1024) {
+    ElMessage.warning('图片大小不能超过10MB')
     return
   }
   checkinLoading.value = true
