@@ -22,7 +22,9 @@ public class ImageModerationService {
     private static final int    MIN_DIMENSION        = 64;       // 最小宽或高
     private static final double MIN_ASPECT_RATIO     = 0.1;      // 最扁比例
     private static final double MAX_ASPECT_RATIO     = 10.0;     // 最窄比例
-    private static final double SKIN_RATIO_THRESHOLD = 0.22;     // 肤色比例上限（降为0.22，捕捉泳装/暴露照片）
+    private static final double SKIN_RATIO_THRESHOLD = 0.22;     // 全局肤色比例上限
+    private static final double SKIN_SPREAD_THRESHOLD = 0.10;    // 即使全局偏低，若皮肤在画面中大面积扩散也拦截
+    private static final double SKIN_CELL_THRESHOLD  = 0.25;     // 单格肤色密度达到此值视为"有皮肤"
     private static final double BLUR_THRESHOLD       = 15.0;     // 拉普拉斯方差下限（低于此值视为模糊）
     private static final double BRIGHTNESS_LOW       = 0.08;     // 平均亮度下限（太暗）
     private static final double BRIGHTNESS_HIGH      = 0.95;     // 平均亮度上限（太亮）
@@ -96,12 +98,19 @@ public class ImageModerationService {
         checks++;
 
         // ── Layer 3: 肤色检测（识别涉黄/暴露内容） ──
-        double skinRatio = detectSkinColor(image);
-        details.add(String.format("肤色区域占比: %.2f%%", skinRatio * 100));
+        SkinAnalysis skinAnalysis = analyzeSkin(image);
+        double skinRatio = skinAnalysis.globalRatio;
+        int skinSpreadRows = skinAnalysis.spreadRows;
+        details.add(String.format("肤色占比: %.2f%%, 扩散行数: %d", skinRatio * 100, skinSpreadRows));
 
+        // 条件 A：全局肤色比例过高
         if (skinRatio > SKIN_RATIO_THRESHOLD) {
             double severity = Math.min(1.0, (skinRatio - SKIN_RATIO_THRESHOLD) / 0.3);
             return reject("图片包含违规内容（暴露/不雅），请上传合规照片", severity, details);
+        }
+        // 条件 B：全局虽不高，但皮肤在画面中纵向扩散多行（不是只有脸在顶部，而是身体皮肤裸露）
+        if (skinRatio > SKIN_SPREAD_THRESHOLD && skinSpreadRows >= 3) {
+            return reject("图片包含违规内容（暴露/不雅），请上传合规照片", 0.7, details);
         }
         totalScore += skinRatio * 2.0;
         checks++;
@@ -211,61 +220,97 @@ public class ImageModerationService {
     }
 
     /**
-     * HSV 肤色检测
-     *
-     * 使用 HSV 颜色空间中经典的肤色范围：
-     *   - 亚洲/ Caucasian 肤色：H 0~50, S 20~150, V 50~255
-     *   - 深色肤色：H 0~50, S 20~255, V 20~200
-     *
-     * @return 肤色像素占总采样像素的比例 (0~1)
+     * 内嵌类：肤色分析结果
      */
-    private double detectSkinColor(BufferedImage image) {
+    private static class SkinAnalysis {
+        final double globalRatio;       // 全图肤色像素占比
+        final int    spreadRows;        // 皮肤扩散到的行数（8行网格中，肤色密度 > SKIN_CELL_THRESHOLD 的行数）
+
+        SkinAnalysis(double globalRatio, int spreadRows) {
+            this.globalRatio = globalRatio;
+            this.spreadRows  = spreadRows;
+        }
+    }
+
+    /**
+     * 肤色分析 —— 双层检测
+     *
+     * HSV 肤色检测 + 8×4 网格扩散分析。
+     * 自拍只有脸部皮肤，集中在顶部1-2行；
+     * 泳装/暴露照的脸+肩+臂+胸会扩散到3-6行。
+     *
+     * @return 全局肤色占比 + 皮肤扩散行数
+     */
+    private SkinAnalysis analyzeSkin(BufferedImage image) {
         int w = image.getWidth();
         int h = image.getHeight();
-        int skinPixels = 0;
-        int totalPixels = 0;
 
+        // 8 行 × 4 列网格
+        int rows = 8, cols = 4;
+        int cellH = h / rows, cellW = w / cols;
         // 采样步长
-        int step = Math.max(1, (int) Math.sqrt(w * h / 8000.0));
+        int step = Math.max(1, (int) Math.sqrt(w * h / 20000.0));
 
-        for (int y = 0; y < h; y += step) {
-            for (int x = 0; x < w; x += step) {
-                Color c = new Color(image.getRGB(x, y));
-                float[] hsv = Color.RGBtoHSB(c.getRed(), c.getGreen(), c.getBlue(), null);
+        double[] rowSkinRatio = new double[rows];
+        long globalSkinPixels = 0;
+        long globalTotalPixels = 0;
 
-                float hue = hsv[0] * 360;        // 0~360
-                float sat = hsv[1] * 255;         // 0~255
-                float val = hsv[2] * 255;         // 0~255
+        for (int gy = 0; gy < rows; gy++) {
+            int startY = gy * cellH;
+            int endY = (gy == rows - 1) ? h : (gy + 1) * cellH;
+            long rowSkin = 0, rowTotal = 0;
 
-                // 经典肤色范围（多种肤色适应）
-                boolean isSkin = false;
+            for (int y = startY; y < endY; y += step) {
+                for (int x = 0; x < w; x += step) {
+                    Color c = new Color(image.getRGB(x, y));
+                    float[] hsv = Color.RGBtoHSB(c.getRed(), c.getGreen(), c.getBlue(), null);
 
-                // 范围 1：亚洲/浅色皮肤
-                if (hue >= 0 && hue <= 50 && sat >= 20 && sat <= 150 && val >= 50 && val <= 255) {
-                    isSkin = true;
+                    float hue = hsv[0] * 360;
+                    float sat = hsv[1] * 255;
+                    float val = hsv[2] * 255;
+
+                    boolean isSkin = false;
+
+                    // 范围 1：亚洲/浅色皮肤
+                    if (hue >= 0 && hue <= 50 && sat >= 20 && sat <= 150 && val >= 50 && val <= 255) {
+                        isSkin = true;
+                    }
+                    // 范围 2：深色皮肤
+                    if (hue >= 0 && hue <= 50 && sat >= 20 && sat <= 255 && val >= 20 && val <= 200) {
+                        isSkin = true;
+                    }
+                    // 范围 3：偏红皮肤
+                    if (hue >= 330 && hue <= 360 && sat >= 15 && sat <= 120 && val >= 50 && val <= 255) {
+                        isSkin = true;
+                    }
+
+                    // 排除纯黑白和灰阶像素
+                    if (sat < 10 || val < 10 || val > 245) {
+                        isSkin = false;
+                    }
+
+                    if (isSkin) {
+                        rowSkin++;
+                        globalSkinPixels++;
+                    }
+                    rowTotal++;
+                    globalTotalPixels++;
                 }
-                // 范围 2：深色皮肤（饱和度范围更宽）
-                if (hue >= 0 && hue <= 50 && sat >= 20 && sat <= 255 && val >= 20 && val <= 200) {
-                    isSkin = true;
-                }
-                // 范围 3：偏红皮肤（某些光照条件下的肤色）
-                if (hue >= 330 && hue <= 360 && sat >= 15 && sat <= 120 && val >= 50 && val <= 255) {
-                    isSkin = true;
-                }
+            }
 
-                // 排除纯黑白和灰阶像素（避免误判）
-                if (sat < 10 || val < 10 || val > 245) {
-                    isSkin = false;
-                }
+            rowSkinRatio[gy] = rowTotal > 0 ? (double) rowSkin / rowTotal : 0;
+        }
 
-                if (isSkin) {
-                    skinPixels++;
-                }
-                totalPixels++;
+        // 统计皮肤扩散行数：有多少行肤色密度超过阈值
+        int spreadCount = 0;
+        for (int gy = 0; gy < rows; gy++) {
+            if (rowSkinRatio[gy] > SKIN_CELL_THRESHOLD) {
+                spreadCount++;
             }
         }
 
-        return totalPixels > 0 ? (double) skinPixels / totalPixels : 0.0;
+        double globalRatio = globalTotalPixels > 0 ? (double) globalSkinPixels / globalTotalPixels : 0;
+        return new SkinAnalysis(globalRatio, spreadCount);
     }
 
     /**
