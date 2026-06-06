@@ -320,43 +320,60 @@ public class ImageModerationService {
      * 原理：二维码的模块（黑白块）交替排列，相邻像素的灰度值频繁
      *       从亮到暗或从暗到亮翻转。正常照片的像素过渡平缓。
      *
-     * 沿多行水平扫描，统计相邻像素的灰度翻转次数占比。
-     * 二维码通常 > 30%，普通照片 < 10%。
+     * 改进：采用 5×5 网格分区，计算每个格子独立的高频翻转率，
+     *       取最大值作为结果。避免大面积纯色背景稀释二维码区域的信号。
      *
-     * @return 高频翻转率 (0~1)
+     * @return 最高网格高频翻转率 (0~1)
      */
     private double detectHighFrequency(BufferedImage image) {
         int w = image.getWidth();
         int h = image.getHeight();
 
-        // 采样行数：取图高度的 5%，至少 5 行
-        int scanLines = Math.max(5, h / 20);
-        int lineStep = Math.max(1, h / scanLines);
+        // 将图片划分为 5x5 网格
+        int rows = 5, cols = 5;
+        int cellH = h / rows;
+        int cellW = w / cols;
 
-        // 列采样步长：每 2 像素采一次（QR 码模块很小，不能隔太多）
-        int colStep = Math.max(1, w / 200);
+        // 每格内扫描 2 行，每 2 像素采样一次
+        int pixelStep = 2;
+        int scanLinesPerCell = 2;
 
-        long totalFlips = 0;
-        long totalPairs = 0;
+        double maxFlipRate = 0;
 
-        for (int y = 0; y < h; y += lineStep) {
-            int prevGray = -1;
-            for (int x = 0; x < w; x += colStep) {
-                Color c = new Color(image.getRGB(x, y));
-                int gray = (c.getRed() + c.getGreen() + c.getBlue()) / 3;
+        for (int gy = 0; gy < rows; gy++) {
+            for (int gx = 0; gx < cols; gx++) {
+                int startX = gx * cellW;
+                int startY = gy * cellH;
+                int endX = (gx == cols - 1) ? w : (gx + 1) * cellW;
+                int endY = (gy == rows - 1) ? h : (gy + 1) * cellH;
 
-                if (prevGray >= 0) {
-                    // 灰度差 > 40 算一次翻转（黑白模块边界）
-                    if (Math.abs(gray - prevGray) > 40) {
-                        totalFlips++;
+                long flips = 0;
+                long pairs = 0;
+                int rowStep = Math.max(1, (endY - startY) / scanLinesPerCell);
+
+                for (int y = startY; y < endY; y += rowStep) {
+                    int prevGray = -1;
+                    for (int x = startX; x < endX; x += pixelStep) {
+                        Color c = new Color(image.getRGB(x, y));
+                        int gray = (c.getRed() + c.getGreen() + c.getBlue()) / 3;
+                        if (prevGray >= 0) {
+                            if (Math.abs(gray - prevGray) > 40) {
+                                flips++;
+                            }
+                            pairs++;
+                        }
+                        prevGray = gray;
                     }
-                    totalPairs++;
                 }
-                prevGray = gray;
+
+                double rate = pairs > 0 ? (double) flips / pairs : 0;
+                if (rate > maxFlipRate) {
+                    maxFlipRate = rate;
+                }
             }
         }
 
-        return totalPairs > 0 ? (double) totalFlips / totalPairs : 0.0;
+        return maxFlipRate;
     }
 
     /**
