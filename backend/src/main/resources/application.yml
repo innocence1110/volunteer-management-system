@@ -44,6 +44,12 @@ springdoc:
   swagger-ui:
     path: /swagger-ui.html
 
+# 图片审核配置
+moderation:
+  skin-ratio-threshold: 0.35
+  blur-threshold: 15.0
+  edge-density-high: 0.40
+
 logging:
   level:
     com.volunteer: debug

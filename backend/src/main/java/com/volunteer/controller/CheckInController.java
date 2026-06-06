@@ -5,6 +5,7 @@ import com.volunteer.dto.Result;
 import com.volunteer.entity.CheckIn;
 import com.volunteer.service.CheckInService;
 import com.volunteer.service.ActivityService;
+import com.volunteer.service.ImageModerationService;
 import com.volunteer.entity.Activity;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -12,7 +13,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import javax.imageio.ImageIO;
 import javax.servlet.http.HttpServletRequest;
+import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 import java.util.UUID;
@@ -30,6 +33,9 @@ public class CheckInController {
 
     @Autowired
     private ActivityService activityService;
+
+    @Autowired
+    private ImageModerationService imageModerationService;
 
     @Operation(summary = "按钮签到")
     @PostMapping("/button/{activityId}")
@@ -78,6 +84,17 @@ public class CheckInController {
             return Result.error("图片大小不能超过5MB");
         }
 
+        // ── 图片内容审核 ──
+        BufferedImage image = ImageIO.read(file.getInputStream());
+        if (image == null) {
+            return Result.error("无法读取图片内容，请重新上传");
+        }
+
+        ImageModerationService.ModerationResult modResult = imageModerationService.moderate(image);
+        if (!modResult.isPassed()) {
+            return Result.error(400, modResult.getReason());
+        }
+
         // 保存文件 - 使用绝对路径
         String fileName = UUID.randomUUID().toString() + "_" + originalName;
         String uploadDir = System.getProperty("user.dir") + File.separator + "uploads" + File.separator + "checkin" + File.separator;
@@ -92,6 +109,10 @@ public class CheckInController {
             checkInService.imageCheckIn(userId, activityId, "/uploads/checkin/" + fileName);
             return Result.success("签到成功", null);
         } catch (RuntimeException e) {
+            // 签到失败则删除已上传文件
+            if (dest.exists()) {
+                dest.delete();
+            }
             return Result.error(e.getMessage());
         }
     }

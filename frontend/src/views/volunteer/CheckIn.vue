@@ -54,6 +54,9 @@
       <!-- 图片签到 -->
       <div v-if="currentActivity.checkInType === 'image'">
         <p style="color: #606266;">上传现场拍摄的照片完成签到</p>
+        <p style="color: #E6A23C; font-size: 13px; margin: 6px 0 12px;">
+          ⚠ 系统会自动审核图片内容，请上传活动现场的真实照片，禁止上传违规图片
+        </p>
         <el-upload
           ref="uploadRef"
           action="#"
@@ -206,9 +209,17 @@ async function handleImageCheckIn() {
       checkinVisible.value = false
       loadData()
     } else {
-      ElMessage.error(res.message)
+      // 图片审核拒绝时，给出更明确的提示
+      const msg = res.message || '签到失败'
+      if (msg.includes('违规') || msg.includes('合规')) {
+        ElMessage.warning({ message: msg, duration: 5000 })
+      } else if (msg.includes('模糊') || msg.includes('过暗') || msg.includes('过亮')) {
+        ElMessage.warning({ message: msg, duration: 5000 })
+      } else {
+        ElMessage.error(msg)
+      }
     }
-  } catch (e) { ElMessage.error('签到失败') }
+  } catch (e) { ElMessage.error('签到失败: ' + (e.message || '网络错误')) }
   finally { checkinLoading.value = false }
 }
 

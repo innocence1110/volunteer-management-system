@@ -50,7 +50,7 @@
 | 我的主页 | 积分、已报名数、已签到数统计 |
 | 活动浏览 | 搜索活动、查看详情 |
 | 活动报名 | 在线报名、取消报名（活动开始前2小时） |
-| 活动签到 | 按钮签到（GPS）、数字码签到、图片签到 |
+| 活动签到 | 按钮签到（GPS）、数字码签到、**图片签到（含 AI 图像审核）** |
 | 信息管理 | 查看/修改个人信息 |
 | 通知消息 | 查看系统通知 |
 
@@ -70,8 +70,9 @@
 | 接口文档 | SpringDoc (Swagger UI) | 1.7.0 |
 | 认证 | JWT (jjwt) | 0.11.5 |
 | 密码加密 | BCrypt | 5.7.x |
+| 图片审核 | 纯 Java 图像识别（HSV 肤色检测 / Sobel 边缘 / 拉普拉斯模糊检测） | 自研 |
 
----
+
 
 ## 环境安装
 
@@ -387,6 +388,7 @@ volunteer-management-system/
 │       │   │   ├── RegistrationService.java
 │       │   │   ├── CheckInService.java
 │       │   │   ├── NotificationService.java
+│       │   │   ├── ImageModerationService.java      图片审核（多层图像识别算法）
 │       │   │   └── impl/                     服务实现（核心业务逻辑）
 │       │   │       ├── UserServiceImpl.java         登录/注册/信息管理
 │       │   │       ├── ActivityServiceImpl.java     活动CRUD + 状态自动更新
@@ -399,7 +401,7 @@ volunteer-management-system/
 │       │   │   ├── UserController.java            个人信息
 │       │   │   ├── ActivityController.java        活动管理
 │       │   │   ├── RegistrationController.java    报名管理
-│       │   │   ├── CheckInController.java         签到管理（含图片上传）
+│       │   │   ├── CheckInController.java         签到管理（含图片上传 + AI 审核）
 │       │   │   ├── NotificationController.java    通知管理
 │       │   │   └── StatsController.java           数据统计
 │       │   │
@@ -519,7 +521,7 @@ volunteer-management-system/
 |------|------|------|
 | POST | /api/checkin/button/{activityId} | 按钮签到（传 GPS 地址） |
 | POST | /api/checkin/code/{activityId} | 数字码签到（传验证码） |
-| POST | /api/checkin/image/{activityId} | 图片签到（上传照片） |
+| POST | /api/checkin/image/{activityId} | 图片签到（上传照片，自动审核内容，拒绝违规图片） |
 | GET | /api/checkin/check/{activityId} | 检查是否已签到 |
 | GET | /api/checkin/activity/{activityId} | 活动签到列表（管理员） |
 
@@ -593,6 +595,17 @@ server: {
 }
 ```
 
+### 图片审核配置
+
+`backend/src/main/resources/application.yml`
+
+```yaml
+moderation:
+  skin-ratio-threshold: 0.35    # 肤色占比阈值，超过则判定为违规暴露内容
+  blur-threshold: 15.0          # 拉普拉斯方差阈值，低于此值判定为模糊
+  edge-density-high: 0.40       # Sobel 边缘密度阈值，超过判定为二维码/文字图
+```
+
 ---
 
 ## 常见问题
@@ -634,9 +647,13 @@ mysql -u root -p123456 < database/schema.sql
 2. 打开浏览器控制台（F12）查看错误信息
 3. 清除浏览器缓存后刷新
 
-### Q6：图片签到上传失败
+### Q6：图片签到失败 / 被拒绝
 
-确认后端目录下 `uploads/checkin/` 文件夹可写。首次上传会自动创建。
+**检查顺序：**
+1. 确认图片格式为 JPG/PNG/GIF，大小不超过 5MB
+2. 确认后端目录下 `uploads/checkin/` 文件夹可写（首次上传会自动创建）
+3. **图片内容审核拒绝**：系统会自动检测模糊/过暗/过亮/纯色/二维码/违规暴露内容，请上传清晰的活动现场照片
+4. 可在 `application.yml` 的 `moderation` 配置段调整审核阈值
 
 ### Q7：GPS 定位获取失败
 
