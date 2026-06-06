@@ -320,60 +320,59 @@ public class ImageModerationService {
      * 原理：二维码的模块（黑白块）交替排列，相邻像素的灰度值频繁
      *       从亮到暗或从暗到亮翻转。正常照片的像素过渡平缓。
      *
-     * 改进：采用 5×5 网格分区，计算每个格子独立的高频翻转率，
-     *       取最大值作为结果。避免大面积纯色背景稀释二维码区域的信号。
+     * 改进 V2：滑动窗口法。扫描 30 行，每行每 3 像素采一个灰度值，
+     *       再用宽度 30 的滑动窗口计算局部翻转率，取全局最大值。
+     *       即使二维码只占图片的 10%，只要有一个小窗口完全落在
+     *       二维码区域内，就能抓到 >35% 的高频翻转信号。
      *
-     * @return 最高网格高频翻转率 (0~1)
+     * @return 最大局部翻转率 (0~1)
      */
     private double detectHighFrequency(BufferedImage image) {
         int w = image.getWidth();
         int h = image.getHeight();
 
-        // 将图片划分为 5x5 网格
-        int rows = 5, cols = 5;
-        int cellH = h / rows;
-        int cellW = w / cols;
+        // 扫描 ~30 行均匀分布
+        int scanRows = Math.min(30, h);
+        int rowStep = Math.max(1, h / scanRows);
+        // 每 3 像素采一次
+        int colStep = 3;
+        // 滑动窗口大小：连续检查 30 对像素
+        int windowSize = 30;
+        // 翻转灰度差阈值
+        int flipThreshold = 40;
 
-        // 每格内扫描 2 行，每 2 像素采样一次
-        int pixelStep = 2;
-        int scanLinesPerCell = 2;
+        double maxRate = 0;
 
-        double maxFlipRate = 0;
+        for (int y = 0; y < h; y += rowStep) {
+            int sampleCount = w / colStep;
+            int[] grays = new int[sampleCount];
+            int idx = 0;
 
-        for (int gy = 0; gy < rows; gy++) {
-            for (int gx = 0; gx < cols; gx++) {
-                int startX = gx * cellW;
-                int startY = gy * cellH;
-                int endX = (gx == cols - 1) ? w : (gx + 1) * cellW;
-                int endY = (gy == rows - 1) ? h : (gy + 1) * cellH;
+            // 提取本行全部灰度值
+            for (int x = 0; x < w; x += colStep) {
+                Color c = new Color(image.getRGB(x, y));
+                grays[idx++] = (c.getRed() + c.getGreen() + c.getBlue()) / 3;
+            }
 
-                long flips = 0;
-                long pairs = 0;
-                int rowStep = Math.max(1, (endY - startY) / scanLinesPerCell);
-
-                for (int y = startY; y < endY; y += rowStep) {
-                    int prevGray = -1;
-                    for (int x = startX; x < endX; x += pixelStep) {
-                        Color c = new Color(image.getRGB(x, y));
-                        int gray = (c.getRed() + c.getGreen() + c.getBlue()) / 3;
-                        if (prevGray >= 0) {
-                            if (Math.abs(gray - prevGray) > 40) {
-                                flips++;
-                            }
-                            pairs++;
-                        }
-                        prevGray = gray;
+            // 滑动窗口：对每连续 windowSize 对相邻像素计算翻转率
+            int maxPairs = sampleCount - 1;
+            for (int start = 0; start + windowSize <= maxPairs; start++) {
+                int flips = 0;
+                for (int k = 0; k < windowSize; k++) {
+                    if (Math.abs(grays[start + k] - grays[start + k + 1]) > flipThreshold) {
+                        flips++;
                     }
                 }
-
-                double rate = pairs > 0 ? (double) flips / pairs : 0;
-                if (rate > maxFlipRate) {
-                    maxFlipRate = rate;
+                double rate = (double) flips / windowSize;
+                if (rate > maxRate) {
+                    maxRate = rate;
+                    // 提前退出：已经远超阈值，无需继续
+                    if (maxRate > 0.30) return maxRate;
                 }
             }
         }
 
-        return maxFlipRate;
+        return maxRate;
     }
 
     /**
