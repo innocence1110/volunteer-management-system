@@ -389,7 +389,7 @@ public class ImageModerationService {
         double maxRate = 0;
 
         for (int y = 0; y < h; y += rowStep) {
-            int sampleCount = w / colStep;
+            int sampleCount = (w + colStep - 1) / colStep;  // 向上取整，避免 for 循环越界
             int[] grays = new int[sampleCount];
             int idx = 0;
 
